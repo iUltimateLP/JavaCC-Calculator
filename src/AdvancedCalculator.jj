@@ -1,0 +1,160 @@
+// Jonathan Verbeek - Hochschule Bremen City University of Applied Sciences - 2020
+
+// JavaCC Options
+options
+{
+	static = false; // Object-oriented parser
+	output_directory = "parser"; // Save the generated files in the "parser" package
+}
+
+// Parser implementation
+PARSER_BEGIN(AdvancedCalculator)
+
+package parser;
+import ast.*;
+import ast.functions.*;
+import java.util.*;
+import java.math.BigDecimal;
+
+// The Java class implementation
+public class AdvancedCalculator
+{
+	// This acts as a simple register for variables, associating decimals with a string variable name
+	public static Hashtable<String, BigDecimal> memory = new Hashtable<String, BigDecimal>() {{ 
+		// We can pre-fill the memory with a few constants here
+		put("pi", new BigDecimal(Math.PI));
+		put("euler", new BigDecimal(2.71828182845904523536));
+	}};
+}
+
+PARSER_END(AdvancedCalculator)
+
+// These characters / regular expressions will be skipped while parsing
+SKIP :
+{
+	// Whitespace characters and single-line comments
+	" " | "\t" | "\r" | "\n" | < "//" (~["\n"])* "\n" >
+}
+
+// A "line" in the program
+Expression Line() :
+{
+	// A single expression will be needed
+	Expression e;
+}
+{
+	// Create a new expression, any line is terminated with a semicolon
+	e = Expression() ";"
+	
+	{
+		return e;
+	}
+}
+
+// An expression, which can be any term or a binary operation
+Expression Expression() :
+{
+	// A left and a right expression will be needed
+	Expression left, right;
+}
+{
+	// Create the left term which will always exist, then a right term if any +/- operation was given
+	// Then, the left term will get the correct expression assigned
+	left = Term() 
+	(
+		"+" right = Term() { left = new AddExpression(left, right); }
+		|
+		"-" right = Term() { left = new SubtractExpression(left, right); }
+	)*
+	
+	{
+		return left;
+	}
+}
+
+// A term can be a primary operation or a multiplication/division followed by a primary operation
+Expression Term() :
+{
+	 // A left and a right expression will be needed
+	Expression left, right;
+}
+{
+	// Punkt-vor-Strich, thats why multiplication, division and modulo operations are primary operations
+	// Concept same as above
+	left = Primary() 
+	(
+		"*" right = Primary() { left = new MultiplicationExpression(left, right); }
+		| 
+		"/" right = Primary() { left = new DivisionExpression(left, right); }
+		|
+		"%" right = Primary() { left = new ModuloExpression(left, right); }
+	)*
+	
+	{
+		return left;
+	}
+}
+
+// A primary operation is either a expression in braces, a primary expression with a minus (unary op.), or just a number
+Expression Primary() :
+{
+	// A primary might consist out of multiple parts, so forward-declare a few variables we might need
+	Expression e;
+	Token t;
+}
+{
+	// Expression in braces is just an expression (pops the braces)
+	"(" e = Expression() ")" { return e; }
+	|
+	// Unary minus expression
+	"-" e = Primary() { return new UnaryMinusExpression(e); }
+	|
+	// A simple number expression
+	t = < Number > { return new NumberExpression(t.image); }
+	|
+	// Now it gets tricky: since JavaCC won't know whether we want to READ or WRITE a variable, we need to specify a lookahead,
+	// so it can look ahead in the stream to see if there's a equal sign coming or not
+	LOOKAHEAD(2)
+	// Variable assignment, using the variable name stored in the Token t, and the expression stored in e after the "=" sign
+	t = < Variable > "=" e = Expression() { return new VariableAssignExpression(t.image, e, memory); }
+	|
+	// Variable read, under the hood it just returns a NumberExpression getting the value from the memory
+	t = < Variable > { return new NumberExpression(memory.get(t.image)); }
+	|
+	LOOKAHEAD(1)
+	// Mathematical functions
+	e = Function() { return e; }
+}
+
+Expression Function() :
+{
+	// Gets assigned with the expression for the function evaluated below
+	Expression e1, e2;
+}
+{
+	// sin(n)
+	"sin(" e1 = Expression() ")" { return new SineFunctionExpression(e1); }
+	|
+	// cos(n)
+	"cos(" e1 = Expression() ")" { return new CosFunctionExpression(e1); }	
+	|
+	// tan(n)
+	"tan(" e1 = Expression() ")" { return new TanFunctionExpression(e1); }
+	|
+	// sqrt(n)
+	"sqrt(" e1 = Expression() ")" { return new SqrtFunctionExpression(e1); }
+	|
+	// pow(b, e)
+	"pow(" e1 = Expression() "," e2 = Expression() ")" { return new PowFunctionExpression(e1, e2); }
+	|
+	// printMemory()
+	"printMemory()" { return new PrintMemoryExpression(memory); }
+}
+
+// All tokens the program can parse, these are integers, decimal numbers and strings for variable names
+TOKEN :
+{
+	< Number : ((["0"-"9"])+ ("." (["0"-"9"])*)?) | ((["0"-"9"])* "." (["0"-"9"])+) >
+	|
+	< Variable : (["a"-"z","A"-"Z","0"-"9","_"])* >
+}
